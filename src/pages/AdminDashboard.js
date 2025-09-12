@@ -511,7 +511,7 @@ export default function AdminDashboard() {
 
   // subscribe to COAL root for metrics
   useEffect(() => {
-    const coalRef = ref(db, "COAL");
+    const coalRef = ref(db, "COAL/Alerts");
     const off = onValue(coalRef, (snap) => setCoal(snap.exists() ? snap.val() : null));
     return () => off();
   }, []);

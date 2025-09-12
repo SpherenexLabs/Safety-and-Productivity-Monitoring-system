@@ -338,7 +338,7 @@ export default function UserDashboard() {
 
   // live metrics at COAL root
   useEffect(() => {
-    const cRef = ref(db, "COAL");
+    const cRef = ref(db, "COAL/Alerts");
     return onValue(cRef, (s) => setCoal(s.exists() ? s.val() : null));
   }, []);
 
