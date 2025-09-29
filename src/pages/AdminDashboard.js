@@ -664,15 +664,19 @@ export default function AdminDashboard() {
       y += 10;
     }
 
-    // Metrics (from COAL root) if available
+    // Metrics (prefer Alerts node via resolveMetric helper)
     const metrics = [
-      ['Blood Pressure', coal?.BP ?? '-'],
-      ['Heart Rate (bpm)', coal?.HR ?? '-'],
-      ['SpO2 (%)', coal?.SPO2 ?? '-'],
-      ['Humidity (%)', coal?.humd ?? '-'],
-      ['Temperature (°C)', coal?.temp ?? '-'],
-      ['Fall Alert', coal?.Fall_alert ?? '-'],
+      ['Blood Pressure', resolveMetric('BP')],
+      ['Heart Rate (bpm)', resolveMetric('HR')],
+      ['SpO2 (%)', resolveMetric('SPO2')],
+      ['Humidity (%)', resolveMetric('humd')],
+      ['Temperature (°C)', resolveMetric('temp')],
+      ['Fall Alert', resolveMetric('Fall_alert')],
     ];
+    const anyMetric = metrics.some(m => m[1] !== '-' && m[1] !== undefined && m[1] !== null);
+    if (!anyMetric) {
+      line('No live metrics available (COAL/Alerts not populated).', { gap: 24 });
+    }
     autoTable(doc, {
       startY: y,
       head: [['Metric', 'Value']],
