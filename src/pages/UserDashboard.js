@@ -315,6 +315,11 @@ export default function UserDashboard() {
     { key: "I_am_Safe_Message",  label: "I am Safe", severity: "info"   },
     { key: "Message_to_Family",  label: "Message to Family", severity: "info"   },
     { key: "Fall_alert",         label: "Fall Alert",       severity: "warning" },
+    // derived vitals alerts
+    { key: "HR_HIGH",            label: "High Heart Rate",  severity: "warning", derived: true },
+    { key: "HR_LOW",             label: "Low Heart Rate",   severity: "warning", derived: true },
+    { key: "TEMP_HIGH",          label: "High Temperature", severity: "danger",  derived: true },
+    { key: "TEMP_LOW",           label: "Low Temperature",  severity: "warning", derived: true },
   ]), []);
 
   const isTrue = (v) => v === 1 || v === "1" || v === true || v === "true";
@@ -336,9 +341,9 @@ export default function UserDashboard() {
     return onValue(selRef, (s) => setSelectedUser(s.val() ?? null));
   }, []);
 
-  // live metrics at COAL root
+  // live metrics at COAL root (BP, HR, SPO2, humd, temp, Fall_alert)
   useEffect(() => {
-    const cRef = ref(db, "COAL/Alerts");
+    const cRef = ref(db, "COAL");
     return onValue(cRef, (s) => setCoal(s.exists() ? s.val() : null));
   }, []);
 
@@ -365,26 +370,40 @@ export default function UserDashboard() {
   const isMine = selectedUser === username;
 
   // compute active alerts + speak on rising edge
+  const parseNum = (raw) => {
+    if (typeof raw === 'number') return raw;
+    const m = String(raw ?? '').match(/-?\d+(?:\.\d+)?/);
+    return m ? parseFloat(m[0]) : NaN;
+  };
+
   const activeAlerts = useMemo(() => {
     const list = [];
     ALERT_DEFS.forEach((def) => {
+      if (def.derived) return; // skip derived in direct loop
       let val = alertsNode?.[def.key];
-      // Fall back to COAL root for Fall_alert if not present under Alerts
-      if (def.key === "Fall_alert" && (val === undefined || val === null)) {
+      if (def.key === 'Fall_alert' && (val === undefined || val === null)) {
         val = coal?.Fall_alert;
       }
-      const isActive = isTrue(val) || (typeof val === "string" && val && val !== "0");
-
-      // Build a human string: if the node contains text, show that; else the label
+      const isActive = isTrue(val) || (typeof val === 'string' && val && val !== '0');
       let text = def.label;
-      if (typeof val === "string" && val !== "1" && val.trim() !== "") {
-        text = val.trim();
-      }
-
+      if (typeof val === 'string' && val !== '1' && val.trim() !== '') text = val.trim();
       if (isActive) list.push({ key: def.key, label: def.label, text, severity: def.severity });
     });
+    // derived vitals only for routed user (isMine)
+    if (coal && isMine) {
+      const hr = parseNum(coal.HR);
+      if (!isNaN(hr)) {
+        if (hr > 110) list.push({ key: 'HR_HIGH', label: 'High Heart Rate', text: `Heart rate ${hr} bpm`, severity: 'warning' });
+        else if (hr < 50) list.push({ key: 'HR_LOW', label: 'Low Heart Rate', text: `Heart rate ${hr} bpm`, severity: 'warning' });
+      }
+      const temp = parseNum(coal.temp);
+      if (!isNaN(temp)) {
+        if (temp >= 38) list.push({ key: 'TEMP_HIGH', label: 'High Temperature', text: `Temperature ${temp}°C`, severity: 'danger' });
+        else if (temp <= 35) list.push({ key: 'TEMP_LOW', label: 'Low Temperature', text: `Temperature ${temp}°C`, severity: 'warning' });
+      }
+    }
     return list;
-  }, [ALERT_DEFS, alertsNode, coal]);
+  }, [ALERT_DEFS, alertsNode, coal, isMine]);
 
   // speak only when a flag transitions from off -> on
   useEffect(() => {

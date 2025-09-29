@@ -344,6 +344,8 @@
 
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
@@ -476,6 +478,11 @@ export default function AdminDashboard() {
     { key: "I_am_Safe_Message",   label: "I am Safe Message",    severity: "info"    },
     { key: "Message_to_Family",   label: "Message to Family",    severity: "info"    },
     { key: "Fall_alert",          label: "Fall Alert",           severity: "warning" },
+    // dynamic vitals derived alerts (computed, not direct DB keys)
+    { key: "HR_HIGH",             label: "High Heart Rate",      severity: "warning", derived: true },
+    { key: "HR_LOW",              label: "Low Heart Rate",       severity: "warning", derived: true },
+    { key: "TEMP_HIGH",           label: "High Temperature",     severity: "danger",  derived: true },
+    { key: "TEMP_LOW",            label: "Low Temperature",      severity: "warning", derived: true },
   ]), []);
 
   const isTrue = (v) => v === 1 || v === "1" || v === true || v === "true";
@@ -509,9 +516,9 @@ export default function AdminDashboard() {
     return () => off();
   }, []);
 
-  // subscribe to COAL root for metrics
+  // subscribe to COAL root for metrics (BP, HR, SPO2, humd, temp, Fall_alert, selectedUser)
   useEffect(() => {
-    const coalRef = ref(db, "COAL/Alerts");
+    const coalRef = ref(db, "COAL");
     const off = onValue(coalRef, (snap) => setCoal(snap.exists() ? snap.val() : null));
     return () => off();
   }, []);
@@ -523,22 +530,43 @@ export default function AdminDashboard() {
     return () => off();
   }, []);
 
-  // derive active alerts
+  // helper to parse numeric vitals
+  const parseNum = (raw) => {
+    if (typeof raw === 'number') return raw;
+    const m = String(raw ?? '').match(/-?\d+(?:\.\d+)?/);
+    return m ? parseFloat(m[0]) : NaN;
+  };
+
+  // derive active alerts (including dynamic HR/temp thresholds)
   const activeAlerts = useMemo(() => {
     const list = [];
     ALERT_DEFS.forEach((def) => {
+      if (def.derived) return; // skip derived for direct evaluation
       let val = alertsNode?.[def.key];
       if (def.key === "Fall_alert" && (val === undefined || val === null)) {
-        // fallback to root COAL/Fall_alert if not present under Alerts
         val = coal?.Fall_alert;
       }
-      const on = isTrue(val) || (typeof val === "string" && val && val !== "0");
+      const on = isTrue(val) || (typeof val === 'string' && val && val !== '0');
       let text = def.label;
-      if (typeof val === "string" && val !== "1" && val.trim() !== "") text = val.trim();
+      if (typeof val === 'string' && val !== '1' && val.trim() !== '') text = val.trim();
       if (on) list.push({ key: def.key, label: def.label, text, severity: def.severity });
     });
+
+    // dynamic vitals thresholds (only when a user is selected)
+    if (coal && selected) {
+      const hr = parseNum(coal.HR);
+      if (!isNaN(hr)) {
+        if (hr > 110) list.push({ key: 'HR_HIGH', label: 'High Heart Rate', text: `Heart rate ${hr} bpm`, severity: 'warning' });
+        else if (hr < 50) list.push({ key: 'HR_LOW', label: 'Low Heart Rate', text: `Heart rate ${hr} bpm`, severity: 'warning' });
+      }
+      const temp = parseNum(coal.temp);
+      if (!isNaN(temp)) {
+        if (temp >= 38) list.push({ key: 'TEMP_HIGH', label: 'High Temperature', text: `Temperature ${temp}°C`, severity: 'danger' });
+        else if (temp <= 35) list.push({ key: 'TEMP_LOW', label: 'Low Temperature', text: `Temperature ${temp}°C`, severity: 'warning' });
+      }
+    }
     return list;
-  }, [ALERT_DEFS, alertsNode, coal]);
+  }, [ALERT_DEFS, alertsNode, coal, selected]);
 
   // speak on rising edges while a user is opened
   useEffect(() => {
@@ -606,6 +634,68 @@ export default function AdminDashboard() {
   };
 
   const selectedProfile = useMemo(() => selectedData?.profile || null, [selectedData]);
+
+  // ---------------- PDF EXPORT ----------------
+  const generatePdf = () => {
+    if (!selected) return;
+    const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+    const marginX = 40;
+    let y = 50;
+    const line = (text, opts={}) => { doc.setFontSize(opts.size||11); doc.text(text, marginX, y); y += (opts.gap||18); };
+
+    // Title
+    doc.setFontSize(18);
+    doc.text(`User Report: @${selected}`, marginX, y); y += 26;
+    doc.setFontSize(11);
+    line(`Generated: ${new Date().toLocaleString()}`);
+
+    // Profile
+    if (selectedProfile) {
+      line('Profile:', { size: 13, gap: 20 });
+      line(`Name: ${selectedProfile.fullName || 'Unnamed'}`);
+      line(`Role: ${selectedProfile.role || 'user'}`);
+      line(`Email: ${selectedProfile.email || '—'}`);
+      line(`Created: ${selectedProfile.createdAt ? new Date(selectedProfile.createdAt).toLocaleString() : '—'}`);
+      y += 10;
+    }
+
+    // Metrics (from COAL root) if available
+    const metrics = [
+      ['Blood Pressure', coal?.BP ?? '-'],
+      ['Heart Rate (bpm)', coal?.HR ?? '-'],
+      ['SpO2 (%)', coal?.SPO2 ?? '-'],
+      ['Humidity (%)', coal?.humd ?? '-'],
+      ['Temperature (°C)', coal?.temp ?? '-'],
+      ['Fall Alert', coal?.Fall_alert ?? '-'],
+    ];
+    autoTable(doc, {
+      startY: y,
+      head: [['Metric', 'Value']],
+      body: metrics,
+      styles: { fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [102,126,234] },
+    });
+    y = doc.lastAutoTable.finalY + 25;
+
+    // Active alerts table
+    if (activeAlerts.length) {
+      doc.setFontSize(13); doc.text('Active Alerts', marginX, y); y += 12;
+      const alertRows = activeAlerts.map(a => [a.label, a.text, a.severity]);
+      autoTable(doc, {
+        startY: y,
+        head: [['Alert', 'Message', 'Severity']],
+        body: alertRows,
+        styles: { fontSize: 10, cellPadding: 5 },
+        headStyles: { fillColor: [231,76,60] },
+      });
+      y = doc.lastAutoTable.finalY + 20;
+    }
+
+    // Footer
+    doc.setFontSize(9);
+    doc.text('Safety and Productivity Monitoring System for Coal Mines', marginX, 820);
+    doc.save(`user-report-${selected}-${Date.now()}.pdf`);
+  };
 
   return (
     <div className="page-bg">
@@ -719,7 +809,10 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
-              <button className="close-details-btn" onClick={closeDetails}>✕ Close Details</button>
+              <div className="details-actions">
+                <button className="ghost export-btn" onClick={generatePdf}>Export PDF</button>
+                <button className="close-details-btn" onClick={closeDetails}>✕ Close Details</button>
+              </div>
             </div>
 
             <div className="alerts-monitoring">

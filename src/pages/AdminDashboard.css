@@ -526,6 +526,32 @@ section h3, .card h3 {
   transform: translateY(-2px);
 }
 
+/* Details header action buttons */
+.details-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.export-btn {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: white;
+  border: 1px solid #667eea;
+  color: #4f46e5;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .25s ease;
+  box-shadow: 0 4px 12px rgba(79,70,229,0.15);
+}
+.export-btn:hover { background:#eef2ff; transform: translateY(-2px); }
+.export-btn:active { transform: translateY(0); }
+
+@media (max-width: 600px){
+  .details-actions { width: 100%; }
+  .details-actions button { flex:1 1 auto; }
+}
+
 /* Alerts Monitoring Section */
 .alerts-monitoring {
   background: var(--bg-card);
