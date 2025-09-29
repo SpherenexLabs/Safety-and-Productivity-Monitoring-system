@@ -343,7 +343,7 @@
 
 
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useNavigate } from "react-router-dom";
@@ -537,6 +537,11 @@ export default function AdminDashboard() {
     return m ? parseFloat(m[0]) : NaN;
   };
 
+  // prefer metrics under COAL/Alerts (as per current DB structure), fallback to root keys
+  const resolveMetric = useCallback((k) => {
+    return alertsNode?.[k] ?? coal?.[k] ?? '-';
+  }, [alertsNode, coal]);
+
   // derive active alerts (including dynamic HR/temp thresholds)
   const activeAlerts = useMemo(() => {
     const list = [];
@@ -554,19 +559,19 @@ export default function AdminDashboard() {
 
     // dynamic vitals thresholds (only when a user is selected)
     if (coal && selected) {
-      const hr = parseNum(coal.HR);
+      const hr = parseNum(resolveMetric('HR'));
       if (!isNaN(hr)) {
         if (hr > 110) list.push({ key: 'HR_HIGH', label: 'High Heart Rate', text: `Heart rate ${hr} bpm`, severity: 'warning' });
         else if (hr < 50) list.push({ key: 'HR_LOW', label: 'Low Heart Rate', text: `Heart rate ${hr} bpm`, severity: 'warning' });
       }
-      const temp = parseNum(coal.temp);
+      const temp = parseNum(resolveMetric('temp'));
       if (!isNaN(temp)) {
         if (temp >= 38) list.push({ key: 'TEMP_HIGH', label: 'High Temperature', text: `Temperature ${temp}°C`, severity: 'danger' });
         else if (temp <= 35) list.push({ key: 'TEMP_LOW', label: 'Low Temperature', text: `Temperature ${temp}°C`, severity: 'warning' });
       }
     }
     return list;
-  }, [ALERT_DEFS, alertsNode, coal, selected]);
+  }, [ALERT_DEFS, alertsNode, coal, selected, resolveMetric]);
 
   // speak on rising edges while a user is opened
   useEffect(() => {
@@ -818,12 +823,12 @@ export default function AdminDashboard() {
             <div className="alerts-monitoring">
               <h3>Real-time Health & Safety Monitoring</h3>
               <div className="wave-graphs-grid">
-                <WaveGraph value={coal?.BP ?? "-"}         label="Blood Pressure" color="#e74c3c" unit="mmHg" />
-                <WaveGraph value={coal?.HR ?? "-"}         label="Heart Rate"     color="#e91e63" unit="bpm" />
-                <WaveGraph value={coal?.SPO2 ?? "-"}       label="SpO2 Level"     color="#2196f3" unit="%" />
-                <WaveGraph value={coal?.humd ?? "-"}       label="Humidity"       color="#00bcd4" unit="%" />
-                <WaveGraph value={coal?.temp ?? "-"}       label="Temperature"    color="#ff9800" unit="°C" />
-                <WaveGraph value={coal?.Fall_alert ?? "-"} label="Fall Alert"     color="#4caf50" unit="status" />
+                <WaveGraph value={resolveMetric('BP')}         label="Blood Pressure" color="#e74c3c" unit="mmHg" />
+                <WaveGraph value={resolveMetric('HR')}         label="Heart Rate"     color="#e91e63" unit="bpm" />
+                <WaveGraph value={resolveMetric('SPO2')}       label="SpO2 Level"     color="#2196f3" unit="%" />
+                <WaveGraph value={resolveMetric('humd')}       label="Humidity"       color="#00bcd4" unit="%" />
+                <WaveGraph value={resolveMetric('temp')}       label="Temperature"    color="#ff9800" unit="°C" />
+                <WaveGraph value={resolveMetric('Fall_alert')} label="Fall Alert"     color="#4caf50" unit="status" />
               </div>
             </div>
           </div>
